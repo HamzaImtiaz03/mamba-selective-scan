@@ -109,12 +109,13 @@ __global__ void scan_fwd_kernel(
       if (idx < TILE) {
         const int left = idx - stride;
         for (int n = 0; n < N; ++n) {
-          const float tA = sa[left * N + n], tB = sb[left * N + n];
-          const float xA = sa[idx * N + n], xB = sb[idx * N + n];
-          sa[left * N + n] = xA; sb[left * N + n] = xB;     // x[left] = x[idx]
-          // x[idx] = combine(t, x_idx_old): a = tA*xA, b = xA*tB + xB
-          sa[idx * N + n] = tA * xA;
-          sb[idx * N + n] = xA * tB + xB;
+          const float tA = sa[left * N + n], tB = sb[left * N + n];   // left subtree total
+          const float xA = sa[idx * N + n], xB = sb[idx * N + n];     // parent prefix
+          sa[left * N + n] = xA; sb[left * N + n] = xB;     // x[left] = parent prefix
+          // x[idx] = combine(parent_prefix, left_total) — parent is the EARLIER segment.
+          // combine(L,R) = (aL*aR, aR*bL + bR) with L=parent (xA,xB), R=left_total (tA,tB).
+          sa[idx * N + n] = xA * tA;
+          sb[idx * N + n] = tA * xB + tB;
         }
       }
       __syncthreads();
