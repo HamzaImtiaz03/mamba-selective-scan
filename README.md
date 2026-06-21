@@ -8,8 +8,8 @@ hand-written **CUDA** kernel (a Blelloch work-efficient prefix scan in shared me
 all targeting the free-tier Google Colab **NVIDIA T4 (Turing, sm_75)**.
 
 The guiding principle throughout is **honesty over hype**: every number in this document
-was measured on a real T4, the test suite is reported exactly as it ran (including a
-known CUDA bug), and no speedup is claimed that was not benchmarked.
+was measured on a real T4, the test suite is reported exactly as it ran, and no speedup is
+claimed that was not benchmarked.
 
 ---
 
@@ -20,15 +20,16 @@ known CUDA bug), and no speedup is claimed that was not benchmarked.
 | Sequential reference (ground truth) | Verified | analytic identities, CPU tests |
 | Pure-torch associative scan | Verified | matches reference to ~5e-15 (float64) |
 | Analytical backward pass | Verified | float64 `gradcheck` passes |
-| Triton kernel (forward + backward) | Verified on T4 | forward error 1.9e-05, grads ~1e-05 |
-| CUDA forward (Blelloch scan) | Known issue | correctness bug in the forward scan |
-| CUDA backward (reverse scan) | Partially verified | input grads correct; state-dependent grads blocked by the forward bug |
+| Triton kernel (forward + backward) | Verified on T4 | forward error 9.5e-06, grads ~1e-05 |
+| CUDA forward (Blelloch scan) | Verified on T4 | forward error 9.5e-06 vs the reference |
+| CUDA backward (reverse scan) | Verified on T4 | all gradients match the reference to ~1e-05 |
 | Memory benchmark (linear vs quadratic) | Verified on T4 | see [Benchmarks](#benchmarks) |
 | Latency benchmark | Verified on T4 | Triton up to ~490x over the reference |
 
-**Recommended GPU path: the Triton kernel.** It passes every correctness test on the T4.
-The CUDA kernel compiles and runs, but its forward scan currently produces an incorrect
-hidden state; details and root cause are in [Known Issues](#known-issues-and-limitations).
+Full test suite on the T4: **98 passed, 0 failed.** Both GPU kernels (Triton and CUDA)
+match the sequential reference on the forward pass and on every gradient. The Triton
+kernel is the fastest path; the CUDA kernel is correct and is the project's headline
+hand-written artifact (a Blelloch work-efficient scan in shared memory).
 
 ---
 
@@ -53,17 +54,17 @@ hidden state; details and root cause are in [Known Issues](#known-issues-and-lim
 ## Results at a Glance
 
 Measured on Google Colab, **NVIDIA Tesla T4 (sm_75, 15.6 GB)**, `torch 2.11.0+cu128`,
-`triton 3.6.0`. CUDA extension JIT-compiled for `sm_75` in 138.5 seconds.
+`triton 3.6.0`. CUDA extension JIT-compiled for `sm_75` in about 133 seconds.
 
 | Metric | Result |
 |---|---|
-| Backward correctness | float64 `gradcheck` passes; Triton gradients match the analytical reference to ~1e-05 |
-| Triton forward accuracy (T4, fp32) | maximum error 1.9e-05 vs the sequential reference |
-| Test suite on T4 | 90 passed, 3 failed (the 3 failures are the CUDA forward tests) |
+| Backward correctness | float64 `gradcheck` passes; Triton and CUDA gradients match the analytical reference to ~1e-05 |
+| Forward accuracy (T4, fp32) | maximum error 9.5e-06 for both the Triton and CUDA kernels vs the sequential reference |
+| Test suite on T4 | 98 passed, 0 failed |
 | Memory scaling | linear in sequence length; attention runs out of memory at L = 65,536 while the scan still runs at L = 100,000 |
 | Memory advantage at L = 16,384 | 658 MB (scan) vs 13,464 MB (attention), about 20x less |
-| Latency (Triton vs reference, L = 2,048) | 0.53 ms vs 257.8 ms, about 490x faster |
-| Latency (Triton vs pure-torch scan, L = 8,192) | 1.81 ms vs 46.9 ms, about 26x faster |
+| Latency (Triton vs reference, L = 2,048) | 0.48 ms vs 233.4 ms, about 490x faster |
+| Latency (Triton vs pure-torch scan, L = 8,192) | 1.85 ms vs 46.9 ms, about 25x faster |
 
 ---
 
@@ -122,7 +123,7 @@ flowchart LR
     PAR["Pure-torch<br/>associative scan"]
     BWD["Analytical backward<br/>float64 gradcheck"]
     TRI["Triton kernel<br/>verified on T4"]
-    CUDA["CUDA kernel<br/>forward bug, under fix"]
+    CUDA["CUDA kernel<br/>verified on T4"]
 
     REF -->|allclose 5e-15| PAR
     REF --> BWD
@@ -131,7 +132,7 @@ flowchart LR
     BWD -->|ported math| CUDA
 
     style TRI fill:#d6f5d6,stroke:#2e7d32
-    style CUDA fill:#fde0e0,stroke:#c62828
+    style CUDA fill:#d6f5d6,stroke:#2e7d32
 ```
 
 The pure-torch associative scan lives in
@@ -278,35 +279,53 @@ non-power-of-two length (which catches off-by-one errors in the reverse scan), b
 and without the skip connection. The analytical gradients also match autograd of the
 independent pure-torch scan to roughly 1e-14 on every input.
 
-### Triton kernel on the T4
+### GPU kernels on the T4
 
-Direct comparison against the sequential reference at `B=2, L=256, D=32, N=16`, fp32:
+Direct comparison against the sequential reference at `B=2, L=256, D=32, N=16`, fp32.
+Maximum absolute error per quantity:
 
-| Quantity | Maximum error |
-|---|---|
-| Forward output | 1.9e-05 |
-| Gradient `dx` | 1.9e-05 |
-| Gradient `ddelta` | 2.3e-05 |
-| Gradient `dA` | 1.3e-03 |
-| Gradient `dB` | 2.2e-05 |
-| Gradient `dC` | 1.4e-05 |
-| Gradient `dD` | 1.6e-05 |
+| Quantity | Triton | CUDA |
+|---|---|---|
+| Forward output | 9.5e-06 | 9.5e-06 |
+| Gradient `dx` | 2.3e-05 | 1.9e-05 |
+| Gradient `ddelta` | 1.9e-05 | 2.2e-05 |
+| Gradient `dA` | 1.2e-03 | 7.5e-04 |
+| Gradient `dB` | 1.5e-05 | 1.6e-05 |
+| Gradient `dC` | 1.3e-05 | 1.3e-05 |
+| Gradient `dD` | 1.9e-05 | 2.5e-05 |
 
-These are exactly the magnitudes expected from fp32 accumulation (the slightly larger `dA`
-error reflects its reduction over the full batch and length).
+Both kernels agree with the reference to the magnitudes expected from fp32 accumulation.
+The slightly larger `dA` error reflects its reduction over the full batch and length.
 
 ### Test suite
 
 Tolerances: fp32 `atol=1e-3`, fp16 `atol=2e-2`, float64 `gradcheck` `atol=1e-6, rtol=1e-4`.
 Edge cases cover `L` in {7, 64, 1000}, `N` in {8, 16}, `D` in {16, 64}, with and without
-the skip connection.
+the skip connection. The suite also includes a CPU simulation of the exact CUDA Blelloch
+algorithm ([`tests/test_blelloch_sim.py`](tests/test_blelloch_sim.py)), so a logic error in
+the scan is caught without a GPU.
 
 ```
-90 passed, 3 failed in 19.14s
+98 passed, 0 failed in 17.77s
 ```
 
-The three failures are all the **CUDA forward** tests; the Triton kernel, the analytical
-backward, the pure-torch scan, and every edge case pass. See [Known Issues](#known-issues-and-limitations).
+Every test passes: the reference, the pure-torch scan, the analytical backward, both GPU
+kernels (forward, backward, fp16), and all edge cases.
+
+### Engineering note: how the CUDA scan bug was found and fixed
+
+The first T4 run exposed a real bug: the CUDA forward produced a hidden state with errors
+around 35 to 40, while Triton was already correct. The fix followed from the failure
+signature rather than guesswork. Every gradient independent of the forward state
+(`dx`, `dB`, `dD`) was correct to about 1e-05, while everything derived from the saved
+state `h` (the forward output and `ddelta`, `dA`, `dC`) was wrong. That isolated the defect
+to the forward scan, not the backward. The cause was a swapped operand in the
+non-commutative combine of the Blelloch down-sweep: it computed
+`combine(left_subtree, parent_prefix)` instead of `combine(parent_prefix, left_subtree)`.
+Because the transition components multiply commutatively, the `a` term was right by
+accident and only the state term was wrong, which is precisely why `h` was corrupted while
+the transition-only gradients survived. The fix was validated first by a CPU simulation of
+the exact algorithm (now committed as a regression test), then confirmed on the T4.
 
 ---
 
@@ -344,19 +363,19 @@ Median forward latency over 30 timed iterations (CUDA events, with warmup), at
 
 | Sequence length L | Reference (ms) | Pure-torch scan (ms) | Triton (ms) | CUDA (ms) |
 |---:|---:|---:|---:|---:|
-| 512 | 63.13 | 2.40 | 0.32 | 3.79 |
-| 1,024 | 126.34 | 5.06 | 0.60 | 3.29 |
-| 2,048 | 257.84 | 10.05 | 0.53 | 5.68 |
-| 4,096 | (skipped) | 21.72 | 0.86 | 11.07 |
-| 8,192 | (skipped) | 46.90 | 1.81 | 21.83 |
+| 512 | 57.49 | 2.30 | 0.24 | 2.56 |
+| 1,024 | 115.78 | 4.95 | 0.39 | 4.12 |
+| 2,048 | 233.35 | 10.18 | 0.48 | 5.74 |
+| 4,096 | (skipped) | 21.73 | 0.86 | 11.13 |
+| 8,192 | (skipped) | 46.90 | 1.85 | 22.12 |
 
-The Triton kernel is roughly 200x to 490x faster than the sequential reference and about
-26x faster than the pure-torch scan at L = 8,192. The sequential reference is skipped
-beyond L = 2,048 because its Python loop dominates the wall clock.
-
-**Note on the CUDA column:** these timings are shown for completeness, but the CUDA kernel
-does not yet produce correct outputs (see below), so its latency is not a meaningful
-performance result at this time.
+The Triton kernel is roughly 240x to 490x faster than the sequential reference and about
+25x faster than the pure-torch scan at L = 8,192. The CUDA kernel is correct and is faster
+than the pure-torch scan at longer sequences (for example 22.1 ms versus 46.9 ms at
+L = 8,192), but is slower than Triton; its backward uses a straightforward per-lane
+sequential reverse scan, which leaves clear room for optimization (see
+[Limitations](#known-issues-and-limitations)). The sequential reference is skipped beyond
+L = 2,048 because its Python loop dominates the wall clock.
 
 **Note on the official mamba-ssm comparison:** the official `mamba-ssm` package did not
 install on the Colab runtime (`ModuleNotFoundError: No module named 'mamba_ssm'`), so no
@@ -367,16 +386,10 @@ keeping with the project's honesty principle.
 
 ## Known Issues and Limitations
 
-**CUDA forward scan correctness bug (open).** The CUDA kernel compiles for sm_75 and runs
-without crashing, but its forward Blelloch scan currently computes an incorrect hidden
-state (forward maximum error of about 35 to 40, versus 1.9e-05 for Triton). The failure
-signature is diagnostic: every gradient that does not depend on the forward state
-(`dx`, `dB`, `dD`) is correct to about 1e-05, while every quantity that does depend on it
-(the forward output, and `ddelta`, `dA`, `dC` through the saved state) is wrong. This
-isolates the defect to the forward scan in
-[`csrc/scan_fwd_kernel.cu`](csrc/scan_fwd_kernel.cu), most likely in the Blelloch
-up-sweep/down-sweep indexing or the cross-chunk carry, rather than in the backward kernel.
-The Triton kernel is the recommended GPU path until this is resolved.
+**CUDA backward performance.** The CUDA backward is correct but uses a straightforward
+per-lane sequential reverse scan rather than a tree-parallel reverse Blelloch scan. This is
+why the CUDA kernel, while faster than the pure-torch scan, trails the Triton kernel in the
+latency table. Parallelizing the reverse scan is the most promising next optimization.
 
 **No bf16 or FP8.** The T4 (sm_75) supports fp16 and fp32 only. The kernels take fp16 or
 fp32 input and accumulate in fp32.
