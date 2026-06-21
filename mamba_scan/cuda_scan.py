@@ -20,7 +20,6 @@ import torch
 from torch import Tensor
 
 _EXT = None
-_BUILD_ERROR = None
 
 
 def _csrc_dir() -> str:
@@ -29,37 +28,35 @@ def _csrc_dir() -> str:
 
 
 def _load_extension():
-    """JIT-compile and cache the CUDA extension. Raises on failure (never fakes)."""
-    global _EXT, _BUILD_ERROR
+    """JIT-compile and cache the CUDA extension. Raises on failure (never fakes).
+
+    A successful build is cached. A *failed* build is NOT cached: the next call
+    retries, so a fixable environment issue (e.g. ninja missing, then installed)
+    can be resolved without restarting the Python kernel.
+    """
+    global _EXT
     if _EXT is not None:
         return _EXT
-    if _BUILD_ERROR is not None:
-        raise _BUILD_ERROR
     if not torch.cuda.is_available():
-        _BUILD_ERROR = RuntimeError(
+        raise RuntimeError(
             "selective_scan_cuda requires a CUDA device (Colab T4). None is available.")
-        raise _BUILD_ERROR
     from torch.utils.cpp_extension import load
     csrc = _csrc_dir()
-    try:
-        _EXT = load(
-            name="selective_scan_cuda_ext",
-            sources=[
-                os.path.join(csrc, "selective_scan.cpp"),
-                os.path.join(csrc, "scan_fwd_kernel.cu"),
-                os.path.join(csrc, "scan_bwd_kernel.cu"),
-            ],
-            extra_include_paths=[os.path.join(csrc, "include")],
-            extra_cuda_cflags=[
-                "-O3",
-                "-gencode", "arch=compute_75,code=sm_75",  # Turing / T4
-                "--use_fast_math",
-            ],
-            verbose=True,
-        )
-    except Exception as e:  # pragma: no cover - depends on the build toolchain
-        _BUILD_ERROR = e
-        raise
+    _EXT = load(   # raises on failure; _EXT stays None so the next call retries
+        name="selective_scan_cuda_ext",
+        sources=[
+            os.path.join(csrc, "selective_scan.cpp"),
+            os.path.join(csrc, "scan_fwd_kernel.cu"),
+            os.path.join(csrc, "scan_bwd_kernel.cu"),
+        ],
+        extra_include_paths=[os.path.join(csrc, "include")],
+        extra_cuda_cflags=[
+            "-O3",
+            "-gencode", "arch=compute_75,code=sm_75",  # Turing / T4
+            "--use_fast_math",
+        ],
+        verbose=True,
+    )
     return _EXT
 
 

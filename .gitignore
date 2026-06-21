@@ -14,10 +14,9 @@ dist/
 *.obj
 torch_extensions/
 
-# Benchmark outputs — regenerated on Colab (force-add the real T4 figures later:
-#   git add -f benchmarks/figures/*.png)
+# Benchmark raw JSON is regenerated on Colab; the rendered figures ARE committed
+# (they are embedded in the README), so only the JSON is ignored.
 benchmarks/results/
-benchmarks/figures/
 
 # OS / editor
 .DS_Store
