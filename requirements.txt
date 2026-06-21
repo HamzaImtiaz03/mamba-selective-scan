@@ -1,0 +1,11 @@
+# Core
+torch>=2.1          # CUDA build on Colab; CPU build is fine for stages 1-2 + float64 gradcheck
+numpy>=1.24
+einops>=0.7
+
+# GPU kernels (Triton ships with the CUDA torch wheel on Colab)
+triton>=2.1 ; platform_system == "Linux"
+
+# Tests + benchmarks + docs
+pytest>=7.4
+matplotlib>=3.7

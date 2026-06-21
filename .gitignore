@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Compiled CUDA / torch JIT extension cache
+*.so
+*.o
+*.obj
+torch_extensions/
+
+# Benchmark outputs — regenerated on Colab (force-add the real T4 figures later:
+#   git add -f benchmarks/figures/*.png)
+benchmarks/results/
+benchmarks/figures/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
