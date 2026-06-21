@@ -66,6 +66,11 @@ Measured on Google Colab, **NVIDIA Tesla T4 (sm_75, 15.6 GB)**, `torch 2.11.0+cu
 | Latency (Triton vs reference, L = 2,048) | 0.48 ms vs 233.4 ms, about 490x faster |
 | Latency (Triton vs pure-torch scan, L = 8,192) | 1.85 ms vs 46.9 ms, about 25x faster |
 
+![Performance dashboard on the Tesla T4](benchmarks/figures/dashboard.png)
+
+*Memory scaling, per-backend latency, Triton speedup, and Triton throughput, all measured
+on the Colab T4.*
+
 ---
 
 ## Background: The Selective Scan
@@ -297,6 +302,8 @@ Maximum absolute error per quantity:
 Both kernels agree with the reference to the magnitudes expected from fp32 accumulation.
 The slightly larger `dA` error reflects its reduction over the full batch and length.
 
+![Correctness heatmap: maximum absolute error vs the reference](benchmarks/figures/correctness.png)
+
 ### Test suite
 
 Tolerances: fp32 `atol=1e-3`, fp16 `atol=2e-2`, float64 `gradcheck` `atol=1e-6, rtol=1e-4`.
@@ -331,8 +338,10 @@ the exact algorithm (now committed as a regression test), then confirmed on the 
 
 ## Benchmarks
 
-All figures and tables below were produced on the T4 by the scripts in
-[`benchmarks/`](benchmarks/) and rendered by `plot_results.py`.
+All numbers below were measured on the T4 by the scripts in
+[`benchmarks/`](benchmarks/). The charts are the interactive Plotly figures from the
+notebook, exported to static images; `plot_results.py` produces an equivalent matplotlib
+version that the notebook also displays inline.
 
 ### Memory: linear versus quadratic
 
@@ -376,6 +385,8 @@ L = 8,192), but is slower than Triton; its backward uses a straightforward per-l
 sequential reverse scan, which leaves clear room for optimization (see
 [Limitations](#known-issues-and-limitations)). The sequential reference is skipped beyond
 L = 2,048 because its Python loop dominates the wall clock.
+
+![Triton speedup over the reference and the pure-torch scan](benchmarks/figures/speedup.png)
 
 **Note on the official mamba-ssm comparison:** the official `mamba-ssm` package did not
 install on the Colab runtime (`ModuleNotFoundError: No module named 'mamba_ssm'`), so no
